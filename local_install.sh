@@ -51,12 +51,6 @@ case "${OS}" in
         ;;
 esac
 
-# Verificar conexão com a internet antes de prosseguir
-if ! ping -c 1 8.8.8.8 &> /dev/null; then
-    log_error "Sem conexão com a internet. Por favor, verifique sua conexão."
-    exit 1
-fi
-
 # Adicionar verificação de espaço em disco
 REQUIRED_SPACE=1000000 # 1GB em KB
 AVAILABLE_SPACE=$(df -k . | awk 'NR==2 {print $4}')
