@@ -720,6 +720,86 @@ export class BaileysStartupService extends ChannelStartupService {
     return this.client;
   }
 
+  private async resolveChatIdentifiers(chat: any) {
+    const originalRemoteJid = chat?.id || null;
+
+    let lid: string | null = null;
+    let jid: string | null = null;
+
+    if (!originalRemoteJid) {
+      return {
+        remoteJid: null,
+        remoteJidAlt: null,
+        jid: null,
+        lid: null,
+        addressingMode: null,
+        instanceId: this.instanceId,
+      };
+    }
+
+    if (originalRemoteJid.endsWith('@s.whatsapp.net')) {
+      jid = originalRemoteJid;
+    }
+
+    if (originalRemoteJid.endsWith('@lid')) {
+      lid = originalRemoteJid;
+
+      jid = chat?.remoteJidAlt || chat?.senderPn || chat?.participantPn || null;
+
+      if (!jid) {
+        try {
+          jid = await this.client?.signalRepository?.lidMapping?.getPNForLID(originalRemoteJid);
+        } catch (error) {
+          this.logger.debug(
+            `Falha ao resolver PN via lidMapping para ${originalRemoteJid}: ${error?.message || error}`,
+          );
+        }
+      }
+
+      if (!jid) {
+        try {
+          const cachedNumbers = await getOnWhatsappCache([originalRemoteJid]);
+
+          const cached = cachedNumbers?.find(
+            (item) =>
+              item.remoteJid === originalRemoteJid ||
+              item.lid === originalRemoteJid ||
+              item.jidOptions?.includes?.(originalRemoteJid),
+          );
+
+          if (cached) {
+            if (cached.remoteJid?.endsWith('@s.whatsapp.net')) {
+              jid = cached.remoteJid;
+            } else {
+              jid = cached.jidOptions?.find((opt) => opt.endsWith('@s.whatsapp.net')) || null;
+            }
+
+            if (!lid) {
+              if (cached.lid?.endsWith('@lid')) {
+                lid = cached.lid;
+              } else if (cached.remoteJid?.endsWith('@lid')) {
+                lid = cached.remoteJid;
+              } else {
+                lid = cached.jidOptions?.find((opt) => opt.endsWith('@lid')) || null;
+              }
+            }
+          }
+        } catch (error) {
+          this.logger.debug(`Falha ao resolver PN via cache para ${originalRemoteJid}: ${error?.message || error}`);
+        }
+      }
+    }
+
+    return {
+      remoteJid: originalRemoteJid,
+      remoteJidAlt: jid.replace(/:\d+(?=@s\.whatsapp\.net$)/, ''),
+      jid,
+      lid,
+      addressingMode: lid ? 'lid' : 'pn',
+      instanceId: this.instanceId,
+    };
+  }
+
   public async connectToWhatsapp(number?: string): Promise<WASocket> {
     try {
       this.loadChatwoot();
@@ -781,10 +861,16 @@ export class BaileysStartupService extends ChannelStartupService {
         }
       >[],
     ) => {
-      const chatsRaw = chats.map((chat) => {
-        return { remoteJid: chat.id, instanceId: this.instanceId };
-      });
+      const chatsRaw = await Promise.all(
+        chats.map(async (chat: any) => {
+          const ids = await this.resolveChatIdentifiers(chat);
 
+          return {
+            ...ids,
+            conversationTimestamp: chat?.conversationTimestamp,
+          };
+        }),
+      );
       this.sendDataWebhook(Events.CHATS_UPDATE, chatsRaw);
 
       for (const chat of chats) {
