@@ -1,0 +1,76 @@
+diff --git a/node_modules/baileys/lib/Utils/messages.js b/node_modules/baileys/lib/Utils/messages.js
+index eff7a53..f1c362f 100644
+--- a/node_modules/baileys/lib/Utils/messages.js
++++ b/node_modules/baileys/lib/Utils/messages.js
+@@ -522,10 +522,70 @@ export const generateWAMessageFromContent = (jid, message, options) => {
+         const participant = quoted.key.fromMe
+             ? userJid // TODO: Add support for LIDs
+             : quoted.participant || quoted.key.participant || quoted.key.remoteJid;
+-        let quotedMsg = normalizeMessageContent(quoted.message);
++        let quotedMsg =
++            extractMessageContent(quoted.message) ||
++            normalizeMessageContent(quoted.message);
+         const msgType = getContentType(quotedMsg);
++        const originalQuotedContent = quotedMsg?.[msgType];
++        let minimalQuotedContent;
+         // strip any redundant properties
+         quotedMsg = proto.Message.create({ [msgType]: quotedMsg[msgType] });
++        switch (msgType) {
++            case 'imageMessage':
++                minimalQuotedContent = {
++                    mimetype: originalQuotedContent?.mimetype || 'image/jpeg',
++                    caption: originalQuotedContent?.caption || '',
++                    jpegThumbnail: originalQuotedContent?.jpegThumbnail,
++                    width: originalQuotedContent?.width,
++                    height: originalQuotedContent?.height,
++                };
++                break;
++
++            case 'videoMessage':
++                minimalQuotedContent = {
++                    mimetype: originalQuotedContent?.mimetype || 'video/mp4',
++                    caption: originalQuotedContent?.caption || '',
++                    jpegThumbnail: originalQuotedContent?.jpegThumbnail,
++                    seconds: originalQuotedContent?.seconds,
++                    width: originalQuotedContent?.width,
++                    height: originalQuotedContent?.height
++                };
++                break;
++
++            case 'audioMessage':
++                minimalQuotedContent = {
++                    mimetype: originalQuotedContent?.mimetype || 'audio/ogg; codecs=opus',
++                    seconds: originalQuotedContent?.seconds,
++                    ptt: !!originalQuotedContent?.ptt
++                };
++                break;
++
++            case 'documentMessage':
++                minimalQuotedContent = {
++                    mimetype: originalQuotedContent?.mimetype || 'application/octet-stream',
++                    fileName: originalQuotedContent?.fileName || originalQuotedContent?.title || 'document',
++                    title: originalQuotedContent?.title || originalQuotedContent?.fileName || 'document',
++                    pageCount: originalQuotedContent?.pageCount,
++                    jpegThumbnail: originalQuotedContent?.jpegThumbnail
++                };
++                break;
++
++            case 'extendedTextMessage':
++                minimalQuotedContent = {
++                    text: originalQuotedContent?.text || ''
++                };
++                break;
++
++            case 'conversation':
++                minimalQuotedContent = quotedMsg?.conversation || '';
++                break;
++
++            default:
++                minimalQuotedContent = originalQuotedContent;
++                break;
++        }
++
++        quotedMsg = proto.Message.fromObject({ [msgType]: minimalQuotedContent });
+         const quotedContent = quotedMsg[msgType];
+         if (typeof quotedContent === 'object' && quotedContent && 'contextInfo' in quotedContent) {
+             delete quotedContent.contextInfo;
